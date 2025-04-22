@@ -54,13 +54,7 @@ fn main() {
         "Test connection number. Default: 50",
         "<number>",
     );
-    opts.optopt(
-        "g",
-        "gradually",
-        "gradually connection option. Default: t",
-        "t, f"
-    );
-        
+
     let matches = match opts.parse(&args[1..]) {
         Ok(m) => m,
         Err(f) => {
@@ -98,7 +92,6 @@ fn main() {
 
     let stop = Arc::new(AtomicBool::new(false));
     let control = Arc::downgrade(&stop);
-    let mut handles = Vec::new();
 
     for _ in 0..number {
         let tx = tx.clone();
@@ -106,13 +99,12 @@ fn main() {
         let stop = stop.clone();
         let length = length;
 
-        let handle = thread::spawn(move || {
+        thread::spawn(move || {
             let mut sum = Count { inb: 0, outb: 0 };
             let mut out_buf: Vec<u8> = vec![0; length];
             out_buf[length - 1] = b'\n';
             let mut in_buf: Vec<u8> = vec![0; length];
             let mut stream = TcpStream::connect(&*address).unwrap();
-            let mut last_report = std::time::Instant::now();
 
             loop {
                 if (*stop).load(Ordering::Relaxed) {
@@ -141,43 +133,32 @@ fn main() {
                     }
                 };
                 sum.inb += 1;
-
-                if last_report.elapsed() >= Duration::from_secs(10) {
-                    tx.send(Count { inb: sum.inb, outb: sum.outb }).unwrap();
-                    last_report = std::time::Instant::now();
-                }
             }
             tx.send(sum).unwrap();
         });
-
-        handles.push(handle);
     }
 
-    for sec in 0..(duration/10-1) {
-        thread::sleep(Duration::from_secs(10));
+    thread::sleep(Duration::from_secs(duration));
     
-        let mut sum = Count { inb: 0, outb: 0 };
-            
-        for _ in 0..number {
-            let c: Count = rx.recv().unwrap();
+    let mut sum = Count { inb: 0, outb: 0 };
+    for sec in 0..duration {
+        thread::sleep(Duration::from_secs(10));
+
+        while let Ok(c) = rx.try_recv() {
             sum.inb += c.inb;
             sum.outb += c.outb;
         }
-        
+
         println!(
-            "[{:>2}s] Total req: {}, res:{}",
-            (sec+1) * 10,
-            sum.outb,
-            sum.inb
-        );
+            "[{:>2}s] Speed: {} req/s, {} res/s | Total req: {}, res: {}",
+            sec + 1, sum.outb / (sec + 1), sum.inb / (sec + 1), sum.outb, sum.inb
+            );
     }
 
     match control.upgrade() {
         Some(stop) => (*stop).store(true, Ordering::Relaxed),
         None => println!("Sorry, but all threads died already."),
     }
-
-    let mut sum = Count { inb: 0, outb: 0 };
 
     for _ in 0..number {
         let c: Count = rx.recv().unwrap();

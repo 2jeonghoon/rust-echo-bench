@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::Duration;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 fn print_usage(program: &str, opts: &getopts::Options) {
     let brief = format!(
@@ -54,13 +55,7 @@ fn main() {
         "Test connection number. Default: 50",
         "<number>",
     );
-    opts.optopt(
-        "g",
-        "gradually",
-        "gradually connection option. Default: t",
-        "t, f"
-    );
-        
+
     let matches = match opts.parse(&args[1..]) {
         Ok(m) => m,
         Err(f) => {
@@ -98,20 +93,23 @@ fn main() {
 
     let stop = Arc::new(AtomicBool::new(false));
     let control = Arc::downgrade(&stop);
-    let mut handles = Vec::new();
 
+    let mut start = 0;
+    let batch_size = 100;
+    
     for _ in 0..number {
         let tx = tx.clone();
         let address = address.clone();
         let stop = stop.clone();
         let length = length;
 
-        let handle = thread::spawn(move || {
+        thread::spawn(move || {
             let mut sum = Count { inb: 0, outb: 0 };
             let mut out_buf: Vec<u8> = vec![0; length];
             out_buf[length - 1] = b'\n';
             let mut in_buf: Vec<u8> = vec![0; length];
             let mut stream = TcpStream::connect(&*address).unwrap();
+
             let mut last_report = std::time::Instant::now();
 
             loop {
@@ -142,7 +140,7 @@ fn main() {
                 };
                 sum.inb += 1;
 
-                if last_report.elapsed() >= Duration::from_secs(10) {
+                if last_report.elapsed() >= Duration::from_secs(1) {
                     tx.send(Count { inb: sum.inb, outb: sum.outb }).unwrap();
                     last_report = std::time::Instant::now();
                 }
@@ -150,23 +148,38 @@ fn main() {
             tx.send(sum).unwrap();
         });
 
-        handles.push(handle);
+        start += 1;
+
+        if start == batch_size {
+            start = 0;
+            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+            println!("[{}s] Launched {} clients", now.as_secs(), start);
+            thread::sleep(Duration::from_secs(10));
+        }
     }
 
-    for sec in 0..(duration/10-1) {
+    for sec in 0..duration/10 {
         thread::sleep(Duration::from_secs(10));
     
         let mut sum = Count { inb: 0, outb: 0 };
-            
-        for _ in 0..number {
+        
+        /*for _ in 0..number {
             let c: Count = rx.recv().unwrap();
+
+            sum.inb += c.inb;
+            sum.outb += c.outb;
+        }*/
+
+        while let Ok(c) = rx.try_recv() {
             sum.inb += c.inb;
             sum.outb += c.outb;
         }
-        
+
         println!(
-            "[{:>2}s] Total req: {}, res:{}",
+            "[{:>2}s] Speed: {} req/s, {} res/s | Total req: {}, res:{}",
             (sec+1) * 10,
+            sum.outb / ((sec+1) * 10),
+            sum.inb / ((sec+1) * 10),
             sum.outb,
             sum.inb
         );
