@@ -1,0 +1,12 @@
+[1/1] Launching benchmark at Fri Apr 25 02:24:42 AM KST 2025
+Start Time: 2025-04-25 02:24:42
+    Finished release [optimized] target(s) in 0.03s
+     Running `target/release/echo_bench --address '117.16.44.111:8050' --number 1000 --duration 300 --length 32`
+Sleeping for 300 seconds
+wake up
+Benchmarking: 117.16.44.111:8050
+1000 clients, running 32 bytes, 300 sec.
+
+Speed: 468828 request/sec, 468825 response/sec
+Requests: 140648589
+Responses: 140647707

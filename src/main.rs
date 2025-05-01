@@ -98,7 +98,6 @@ fn main() {
 
     let stop = Arc::new(AtomicBool::new(false));
     let control = Arc::downgrade(&stop);
-    let mut handles = Vec::new();
 
     for _ in 0..number {
         let tx = tx.clone();
@@ -106,13 +105,15 @@ fn main() {
         let stop = stop.clone();
         let length = length;
 
-        let handle = thread::spawn(move || {
+        thread::spawn(move || {
             let mut sum = Count { inb: 0, outb: 0 };
             let mut out_buf: Vec<u8> = vec![0; length];
             out_buf[length - 1] = b'\n';
             let mut in_buf: Vec<u8> = vec![0; length];
             let mut stream = TcpStream::connect(&*address).unwrap();
-            let mut last_report = std::time::Instant::now();
+
+            stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+            stream.set_write_timeout(Some(Duration::from_secs(2))).unwrap();
 
             loop {
                 if (*stop).load(Ordering::Relaxed) {
@@ -141,36 +142,16 @@ fn main() {
                     }
                 };
                 sum.inb += 1;
-
-                if last_report.elapsed() >= Duration::from_secs(10) {
-                    tx.send(Count { inb: sum.inb, outb: sum.outb }).unwrap();
-                    last_report = std::time::Instant::now();
-                }
-            }
+           }
             tx.send(sum).unwrap();
         });
-
-        handles.push(handle);
     }
 
-    for sec in 0..(duration/10-1) {
-        thread::sleep(Duration::from_secs(10));
-    
-        let mut sum = Count { inb: 0, outb: 0 };
-            
-        for _ in 0..number {
-            let c: Count = rx.recv().unwrap();
-            sum.inb += c.inb;
-            sum.outb += c.outb;
-        }
-        
-        println!(
-            "[{:>2}s] Total req: {}, res:{}",
-            (sec+1) * 10,
-            sum.outb,
-            sum.inb
-        );
-    }
+    println!("Sleeping for {} seconds", duration);
+
+    thread::sleep(Duration::from_secs(duration));
+
+    println!("wake up");
 
     match control.upgrade() {
         Some(stop) => (*stop).store(true, Ordering::Relaxed),
