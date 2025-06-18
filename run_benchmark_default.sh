@@ -1,10 +1,11 @@
 #!/bin/bash
 
-duration=300
+duration=180
+length=4
 
 log_file="log_default.txt"
 net_log_file="ifstat_log_default.txt"
-interface="eno1"
+interface="enp1s0f1"
 
 echo "[1/1] Launching benchmark at $(date)" | tee "$log_file"
 start_time=$(date '+%Y-%m-%d %H:%M:%S')
@@ -18,10 +19,10 @@ ifstat_pid=$!
 
 # 백그라운드에서 실행하고 로그 저장	
 cargo run --release -- \
-	--address "117.16.44.111:8050" \
+	--address "192.168.1.101:8050" \
 	--number 1000 \
 	--duration "$duration" \
-	--length 256 >> "$log_file" 2>&1
+	--length "$length" >> "$log_file" 2>&1
 
 # Kill ifstat after duration
 sleep 1
