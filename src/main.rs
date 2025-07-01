@@ -134,7 +134,10 @@ fn main() {
             let mut in_buf: Vec<u8> = vec![0; length];
 
             let mut stream = match TcpStream::connect(&*address_clone) {
-                Ok(s) => s,
+                Ok(s) => {
+					s.set_nodelay(true).expect("Failed to set TCP_NODELAY");
+					s
+				},
                 Err(e) => {
                     eprintln!(
                         "Thread {}: Failed to connect to {}: {}",
@@ -144,6 +147,8 @@ fn main() {
                     return;
                 }
             };
+
+			thread::sleep(Duration::from_secs(15));
 
             let mut latencies: Vec<Duration> = Vec::new();
 
@@ -247,7 +252,7 @@ fn main() {
                                 );
                         }
                         for latency in latencies {
-                            if writeln!(writer, "{}", latency.as_micros()).is_err() {
+                            if writeln!(writer, "{}", latency.as_nanos()).is_err() {
                                 eprintln!(
                                     "Thread {}: Error writing latency to file {}",
                                     id,
@@ -271,14 +276,14 @@ fn main() {
                 }
             });
 
-            thread::sleep(Duration::from_millis(10));
+            //thread::sleep(Duration::from_millis(1));
         }
 
         println!(
             "Main: All {} client threads launched. Waiting for {} seconds...",
             number, duration
             );
-        thread::sleep(Duration::from_secs(duration));
+        thread::sleep(Duration::from_secs(duration+15));
 
         println!("Main: Time is up. Signalling threads to stop...");
         stop.store(true, Ordering::Relaxed);
