@@ -20,7 +20,7 @@ ifstat_pid=$!
 # 백그라운드에서 실행하고 로그 저장	
 RUST_BACKTRACE=1 cargo run --release -- \
 	--address "192.168.1.121:8050" \
-	--number 8192 \
+	--number 16384 \
 	--duration "$duration" \
 	--length "$length" >> "$log_file" 2>&1
 

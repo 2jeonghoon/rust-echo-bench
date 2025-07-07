@@ -148,7 +148,7 @@ fn main() {
                 }
             };
 
-			thread::sleep(Duration::from_secs(15));
+			thread::sleep(Duration::from_secs(60));
 
             let mut latencies: Vec<Duration> = Vec::new();
 
@@ -283,7 +283,7 @@ fn main() {
             "Main: All {} client threads launched. Waiting for {} seconds...",
             number, duration
             );
-        thread::sleep(Duration::from_secs(duration+15));
+        thread::sleep(Duration::from_secs(duration+60));
 
         println!("Main: Time is up. Signalling threads to stop...");
         stop.store(true, Ordering::Relaxed);
@@ -292,7 +292,7 @@ fn main() {
         let mut total_sum = Count { inb: 0, outb: 0 };
         let mut received_counts = 0;
         for i in 0..number {
-            match rx.recv_timeout(Duration::from_secs(15)) {
+            match rx.recv_timeout(Duration::from_secs(10)) {
                 Ok(c) => {
                     total_sum.inb += c.inb;
                     total_sum.outb += c.outb;
