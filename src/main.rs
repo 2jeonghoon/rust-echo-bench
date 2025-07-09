@@ -8,6 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::{Duration, Instant};
+use core_affinity;
 
 fn print_usage(program: &str, opts: &getopts::Options) {
     let brief = format!(
@@ -95,6 +96,11 @@ fn main() {
     let (tx, rx) = mpsc::channel();
     let stop = Arc::new(AtomicBool::new(false));
 
+	let cores = core_affinity::get_core_ids().unwrap();
+
+	let pinned_cores: Vec<_> = cores.into_iter().filter(|c| c.id >= 2 && c.id <= 31).collect();
+	let core_count = pinned_cores.len();
+
     let now = Local::now();
     let timestamp_folder_name = now.format("%Y-%m-%d_%H-%M-%S").to_string();
     let base_output_path = PathBuf::from("latency").join(timestamp_folder_name);
@@ -123,7 +129,13 @@ fn main() {
 
         let output_path_for_thread = Arc::clone(&base_output_path_arc);
 
+		let index = (thread_id_counter as usize) % core_count;
+		let core_to_use = pinned_cores[index];
+
         thread::spawn(move || {
+			// CPU affinity 설정
+			core_affinity::set_for_current(core_to_use);
+
             let id = thread_id_counter;
             let mut sum = Count { inb: 0, outb: 0 };
             let mut out_buf: Vec<u8> = vec![0; length];
@@ -276,7 +288,7 @@ fn main() {
                 }
             });
 
-            //thread::sleep(Duration::from_millis(1));
+            thread::sleep(Duration::from_millis(1));
         }
 
         println!(

@@ -7,3 +7,4 @@ edition = "2018"
 [dependencies]
 getopts = "0"
 chrono = "0.4"
+core_affinity="0.8"
