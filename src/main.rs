@@ -96,10 +96,10 @@ fn main() {
     let (tx, rx) = mpsc::channel();
     let stop = Arc::new(AtomicBool::new(false));
 
-	let cores = core_affinity::get_core_ids().unwrap();
+	// let cores = core_affinity::get_core_ids().unwrap();
 
-	let pinned_cores: Vec<_> = cores.into_iter().filter(|c| c.id >= 2 && c.id <= 31).collect();
-	let core_count = pinned_cores.len();
+	// let pinned_cores: Vec<_> = cores.into_iter().filter(|c| c.id >= 16 && c.id <= 31).collect();
+	// let core_count = pinned_cores.len();
 
     let now = Local::now();
     let timestamp_folder_name = now.format("%Y-%m-%d_%H-%M-%S").to_string();
@@ -129,12 +129,12 @@ fn main() {
 
         let output_path_for_thread = Arc::clone(&base_output_path_arc);
 
-		let index = (thread_id_counter as usize) % core_count;
-		let core_to_use = pinned_cores[index];
+		// let index = (thread_id_counter as usize) % core_count;
+		// let core_to_use = pinned_cores[index];
 
         thread::spawn(move || {
 			// CPU affinity 설정
-			core_affinity::set_for_current(core_to_use);
+			// core_affinity::set_for_current(core_to_use);
 
             let id = thread_id_counter;
             let mut sum = Count { inb: 0, outb: 0 };
