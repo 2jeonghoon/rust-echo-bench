@@ -96,10 +96,10 @@ fn main() {
     let (tx, rx) = mpsc::channel();
     let stop = Arc::new(AtomicBool::new(false));
 
-	// let cores = core_affinity::get_core_ids().unwrap();
+	let cores = core_affinity::get_core_ids().unwrap();
 
-	// let pinned_cores: Vec<_> = cores.into_iter().filter(|c| c.id >= 16 && c.id <= 31).collect();
-	// let core_count = pinned_cores.len();
+	let pinned_cores: Vec<_> = cores.into_iter().filter(|c| c.id <= 11).collect();
+	let core_count = pinned_cores.len();
 
     let now = Local::now();
     let timestamp_folder_name = now.format("%Y-%m-%d_%H-%M-%S").to_string();
@@ -129,12 +129,12 @@ fn main() {
 
         let output_path_for_thread = Arc::clone(&base_output_path_arc);
 
-		// let index = (thread_id_counter as usize) % core_count;
-		// let core_to_use = pinned_cores[index];
+		let index = (thread_id_counter as usize) % core_count;
+		let core_to_use = pinned_cores[index];
 
         thread::spawn(move || {
 			// CPU affinity 설정
-			// core_affinity::set_for_current(core_to_use);
+			core_affinity::set_for_current(core_to_use);
 
             let id = thread_id_counter;
             let mut sum = Count { inb: 0, outb: 0 };
@@ -160,7 +160,7 @@ fn main() {
                 }
             };
 
-			thread::sleep(Duration::from_secs(60));
+			thread::sleep(Duration::from_secs(3));
 
             let mut latencies: Vec<Duration> = Vec::new();
 
@@ -242,12 +242,19 @@ fn main() {
                 }
 
                 let end_time = Instant::now();
-                latencies.push(end_time.duration_since(start_time));
+                let lt = end_time.duration_since(start_time);
+                latencies.push(lt);
                 sum.inb += 1;
 
                 if &in_buf[..length] != &out_buf[..length] {
                     eprintln!("Thread {}: Data mismatch! Sent != Received", id);
                 }
+                
+                if lt.as_millis() < 10 {
+                    let sleep_du = 10u128 - lt.as_millis();
+                    thread::sleep(Duration::from_millis(sleep_du as u64));
+                }
+                
             }
 
                 let latency_file_name = format!("latency_thread_{}.txt", id);
@@ -295,7 +302,7 @@ fn main() {
             "Main: All {} client threads launched. Waiting for {} seconds...",
             number, duration
             );
-        thread::sleep(Duration::from_secs(duration+60));
+        thread::sleep(Duration::from_secs(duration+3));
 
         println!("Main: Time is up. Signalling threads to stop...");
         stop.store(true, Ordering::Relaxed);
