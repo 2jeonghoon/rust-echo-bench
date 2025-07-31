@@ -15,3 +15,8 @@ latency
 default-multi1
 default-multi1.tar.gz
 07*
+chat/result
+chat-c/result
+napi-c/result
+tcp/result
+udp/result
