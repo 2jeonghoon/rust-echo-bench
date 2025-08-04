@@ -1,0 +1,5 @@
+    Finished `release` profile [optimized] target(s) in 0.01s
+     Running `target/release/echo_bench --address '192.168.1.101:8050' --number 16 --duration 171 --length 16`
+Starting UDP benchmark with 16 connections, 16 byte messages, for 171 seconds, to 192.168.1.101:8050
+recv timeout 발생
+Total Sent: 27344, Total Received: 995295

@@ -1,0 +1,11 @@
+[package]
+name = "echo_bench"
+version = "0.2.0"
+authors = ["Harald Hoyer <harald@redhat.com>"]
+edition = "2018"
+
+[dependencies]
+getopts = "0"
+chrono = "0.4"
+core_affinity="0.8"
+rand="0.8"
