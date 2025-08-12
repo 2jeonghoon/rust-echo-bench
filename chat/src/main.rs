@@ -2,10 +2,13 @@ use getopts::Options;
 use std::env;
 use std::net::{UdpSocket};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
-use std::time::{Duration};
+use std::time::{Duration, Instant};
 use rand::{Rng};
+use std::collections::HashMap;
+use std::fs::OpenOptions;
+use std::io::{Write, Result};
 
 #[derive(Debug, Copy, Clone)]
 struct Count {
@@ -63,10 +66,16 @@ fn main() {
         number, length, duration, address
         );
 
+    let sent_messages = Arc::new(Mutex::new(HashMap::<String, Instant>::new()));
+
     for id in 0..number {
         let tx_clone = tx.clone();
         let stop_clone = Arc::clone(&stop);
         let address_clone = address.clone();
+		let sent_messages_clone = Arc::clone(&sent_messages);
+
+		let latency_file_path = format!("latency_records_thread_{}.txt", id);
+
         thread::spawn(move || {
             let socket = match UdpSocket::bind("0.0.0.0:0") {
                 Ok(s) => s,
@@ -94,10 +103,21 @@ fn main() {
 
             thread::spawn(move || {
                 let mut in_buf = vec![0u8; length];
+
+				let mut file = OpenOptions::new().create(true).append(true).open(&latency_file_path).expect("Unable to open file");		
+
                 while !stop_rx.load(Ordering::Relaxed) {
                     match socket_rx.recv(&mut in_buf) {
-                        Ok(_received) => {
+                        Ok(received) => {
                             inb_counter_clone.fetch_add(1, Ordering::Relaxed);
+							let received_msg = String::from_utf8_lossy(&in_buf[..received]);
+
+							let sent_messages = sent_messages_clone.lock().unwrap();
+
+							if let Some(sent_time) = sent_messages.get(&received_msg.to_string()) {
+								let latency = sent_time.elapsed().as_secs_f64() * 1000.0; // 밀리초로 변환
+								writeln!(file, "{},{},{}", id, received_msg, latency).expect("Unable to write to file");
+							}
                         }
                         Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                             println!("recv timeout 발생");
@@ -120,7 +140,11 @@ fn main() {
                 buf[..length - 1].copy_from_slice(msg.as_bytes());
                 buf[length - 1] = b'\n';
 
-                if socket.send(&buf).is_ok() {
+				let sent_time = Instant::now();
+				let mut sent_messages = sent_messages_clone.lock().unwrap();
+				sent_messages.insert(msg.clone(), sent_time);
+
+				if socket.send(&buf).is_ok() {
                     outb += 1;
                 }
 
