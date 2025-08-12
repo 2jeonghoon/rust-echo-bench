@@ -1,10 +1,14 @@
 use getopts::Options;
-use std::env;
-use std::net::{UdpSocket};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc};
-use std::thread;
-use std::time::{Duration};
+use std::{
+        collections::HashMap,
+        fs::{OpenOptions, create_dir_all},
+        io::{BufWriter, Write},
+        net::UdpSocket,
+        sync::{Arc, Mutex, mpsc, atomic::{Ordering, AtomicBool}},
+        thread,
+        env,
+        time::{Duration, Instant},
+};
 use rand::{Rng};
 
 #[derive(Debug, Copy, Clone)]
@@ -63,11 +67,17 @@ fn main() {
         number, length, duration, address
         );
 
+    let mut handles = Vec::new();
+
     for id in 0..number {
         let tx_clone = tx.clone();
         let stop_clone = Arc::clone(&stop);
         let address_clone = address.clone();
-        thread::spawn(move || {
+
+        create_dir_all("latency").ok();
+        let log_path = format!("latency/thread_{}.txt", id);
+
+        handles.push(thread::spawn(move || {
             let socket = match UdpSocket::bind("0.0.0.0:0") {
                 Ok(s) => s,
                 Err(e) => {
@@ -83,8 +93,12 @@ fn main() {
                 return;
             }
 
-            socket.set_read_timeout(Some(Duration::from_millis(100000))).ok();
-            socket.set_write_timeout(Some(Duration::from_millis(100000))).ok();
+            socket.set_read_timeout(Some(Duration::from_millis(1000))).ok();
+            socket.set_write_timeout(Some(Duration::from_millis(1000))).ok();
+
+            let sent_map: Arc<Mutex<HashMap<String, Instant>>> = Arc::new(Mutex::new(HashMap::new()));
+            let sent_for_rx = Arc::clone(&sent_map);
+            let sent_for_tx = Arc::clone(&sent_map);
 
             let socket_rx = socket.try_clone().expect("Socket clone failed");
             let stop_rx = Arc::clone(&stop_clone);
@@ -92,11 +106,29 @@ fn main() {
             let inb_counter = Arc::new(std::sync::atomic::AtomicU64::new(0));
             let inb_counter_clone = Arc::clone(&inb_counter);
 
-            thread::spawn(move || {
+            let rx_handle = thread::spawn(move || {
                 let mut in_buf = vec![0u8; length];
+
+                let file = OpenOptions::new().create(true).append(true).open(&log_path)
+                    .expect("open latency log failed");
+                let mut writer = BufWriter::new(file);
+
                 while !stop_rx.load(Ordering::Relaxed) {
                     match socket_rx.recv(&mut in_buf) {
-                        Ok(_received) => {
+                        Ok(received) => {
+                            let received_msg = String::from_utf8_lossy(&in_buf[..received]);
+
+                            if let Some(sent_time) = {
+                                let mut m = sent_for_rx.lock().unwrap();
+                                m.remove(received_msg.as_ref())
+                            } {
+                                let latency_ms = sent_time.elapsed().as_secs_f64() * 1000.0;
+
+                                if let Err(e) = writeln!(writer, "{}", latency_ms) {
+                                        eprintln!("[thread {id}] write failed: {e}");
+                                }
+                            }
+
                             inb_counter_clone.fetch_add(1, Ordering::Relaxed);
                         }
                         Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
@@ -107,6 +139,10 @@ fn main() {
                         }
                     }
                 }
+                
+                if let Err(e) = writer.flush() {
+                        eprintln!("[thread {id}] final flush failed: {e}");
+                }
             });
 
             let mut outb: u64 = 0;
@@ -116,9 +152,16 @@ fn main() {
 
             while !stop_clone.load(Ordering::Relaxed) {
                 let msg: String = (0..length - 1).map(|_| rng.sample(rand::distributions::Alphanumeric) as char).collect();
+                let msg_line = format!("{msg}\n");
+
 
                 buf[..length - 1].copy_from_slice(msg.as_bytes());
                 buf[length - 1] = b'\n';
+
+                {
+                    let mut m = sent_for_tx.lock().unwrap();
+                    m.insert(msg_line.clone(), Instant::now());
+                }
 
                 if socket.send(&buf).is_ok() {
                     outb += 1;
@@ -129,11 +172,15 @@ fn main() {
 
             let inb = inb_counter.load(Ordering::Relaxed);
             let _ = tx_clone.send(Count {inb, outb});
-        });
+
+            rx_handle.join().expect("join failed");
+        }));
     }
 
     thread::sleep(Duration::from_secs(duration));
     stop.store(true, Ordering::Relaxed);
+
+    for h in handles { h.join().unwrap(); }
 
     let mut total = Count { inb: 0, outb: 0 };
     for _ in 0..number {
