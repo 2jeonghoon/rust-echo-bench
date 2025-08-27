@@ -13,7 +13,7 @@ echo "Duration: $duration"
 
 # 백그라운드에서 실행하고 로그 저장	
 cargo run --release -- \
-	--address "192.168.1.101:8050" \
+	--address "192.168.1.121:8050" \
 	--number 16 \
 	--duration "$duration" \
 	--length "$length" >> "$log_file" 2>&1
