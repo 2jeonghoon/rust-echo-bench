@@ -1,10 +1,10 @@
 BASE_PORT=8050
 NUM_ROUNDS=1
 CLIENTS_PER_ROUND=1000
-INTERVAL=60
+INTERVAL=70
 LENGTH=8
 LOG_BASE="log_default"
-ADDRESS_PREFIX="192.168.1.121"
+ADDRESS_PREFIX="127.0.0.1"
 
 start_time_global=$(date '+%Y-%m-%d %H:%M:%S')
 echo "[🚀 Benchmark 시작] $start_time_global"
@@ -27,7 +27,7 @@ for ((i=0; i<NUM_ROUNDS; i++)); do
 	"$BIN" \
 		--address "$ADDRESS_PREFIX:$PORT" \
 		--number "$CLIENTS_PER_ROUND" \
-		--duration $((60*(NUM_ROUNDS - i))) \
+		--duration $((INTERVAL*(NUM_ROUNDS - i))) \
 		--length "$LENGTH" >> "$LOG_FILE" 2>&1 &
 	CLIENT_PIDS+=($!)
 	sleep $INTERVAL

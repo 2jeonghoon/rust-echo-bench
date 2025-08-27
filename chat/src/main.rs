@@ -2,15 +2,19 @@ use getopts::Options;
 use chrono::Local; // chrono 크레이트 필요
 use std::{
 		collections::HashMap,
-				fs::{OpenOptions, create_dir_all},
-				io::{BufWriter, Write},
-				net::UdpSocket,
-				sync::{Arc, Mutex, mpsc, atomic::{Ordering, AtomicBool}},
-				thread,
-				env,
-				time::{Duration, Instant},
+		fs::{OpenOptions, create_dir_all},
+		io::{BufWriter, Write},
+		net::UdpSocket,
+		sync::{Arc, Mutex, mpsc, atomic::{Ordering, AtomicBool}},
+		thread,
+		env,
+		time::{Duration, Instant},
+		io,
+		os::fd::AsRawFd,
 };
+use core_affinity::{get_core_ids, set_for_current};
 use rand::{Rng};
+use libc::{c_int, setsockopt, SOL_SOCKET, SO_RCVBUF, SO_SNDBUF};
 #[derive(Debug, Copy, Clone)]
 struct Count {
 inb: u64,
@@ -27,6 +31,22 @@ fn print_usage(program: &str, opts: &Options) {
 						program = program
 						);
 		print!("{}", opts.usage(&brief));
+}
+
+fn set_rcvbuf(sock: &std::net::UdpSocket, size: c_int) -> io::Result<()> {
+		    let rc = unsafe {
+					        setsockopt(sock.as_raw_fd(), SOL_SOCKET, SO_RCVBUF,
+											                   &size as *const _ as *const _, std::mem::size_of::<c_int>() as _)
+									    };
+			    if rc == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
+}
+
+fn set_sndbuf(sock: &std::net::UdpSocket, size: c_int) -> io::Result<()> {
+		    let rc = unsafe {
+					        setsockopt(sock.as_raw_fd(), SOL_SOCKET, SO_SNDBUF,
+											                   &size as *const _ as *const _, std::mem::size_of::<c_int>() as _)
+									    };
+			    if rc == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
 }
 
 fn main() {
@@ -51,7 +71,6 @@ fn main() {
 			print_usage(&program, &opts);
 
 			return;
-			
 		}
 		
 	};
@@ -82,6 +101,9 @@ fn main() {
 	// let now_str = Local::now().format("%Y%m%d_%H%M%S").to_string();
 	let run_id = format!("{}", chrono::Local::now().format("%Y%m%d_%H%M%S_%6f"));
 
+	let all = get_core_ids().expect("core ids");
+    let allowed: Vec<_> = all.into_iter().filter(|c| c.id != 0 && c.id != 1).collect();
+
 
 	for id in 0..number {
 		let tx_clone = tx.clone();
@@ -92,9 +114,14 @@ fn main() {
 		let dir_path = format!("latency/{}", run_id);
 
 		create_dir_all(&dir_path).expect("Failed to create directory");
-		
+	
+		let idx = (id as usize) % allowed.len();
+
+		let core = allowed[idx];
+
 		let log_path = format!("{}/thread_{}.txt", dir_path, id);
 		handles.push(thread::spawn(move || {
+			assert!(set_for_current(core), "affinity 설정 실패");
 			let socket = match UdpSocket::bind("0.0.0.0:0") {
 				Ok(s) => s,
 				Err(e) => {
@@ -112,8 +139,14 @@ fn main() {
 				return;
 			}
 
-			socket.set_read_timeout(Some(Duration::from_secs(10))).ok();
-	
+			if let Err(e) = set_rcvbuf(&socket, 256*1024*1024) {
+					eprintln!("Thread {id}: set_rcvbuf failed: {e}");
+			}
+
+			if let Err(e) = set_sndbuf(&socket, 64*1024*1024) {
+					eprintln!("Thread {id}: set_sndbuf failed: {e}");
+			}
+
 			let sent_map: Arc<Mutex<HashMap<String, Instant>>> = Arc::new(Mutex::new(HashMap::new()));
 			let sent_for_rx = Arc::clone(&sent_map);
 			let sent_for_tx = Arc::clone(&sent_map);
@@ -138,14 +171,15 @@ fn main() {
 					outb += 0;
 			}
 			
-			thread::sleep(Duration::from_millis(100));
-
+			thread::sleep(Duration::from_millis(10000));
 
 			let rx_handle = thread::spawn(move || {
 				let mut in_buf = vec![0u8; length];
 				let file = OpenOptions::new().create_new(true).append(true).open(&log_path).expect("open latency log failed");
 				let mut writer = BufWriter::new(file);
-
+				
+				//socket.set_read_timeout(Some(Duration::from_secs(10))).ok();
+				socket_rx.set_read_timeout(Some(Duration::from_secs(10))).ok();
 				while !stop_rx_clone.load(Ordering::Relaxed) {
 					match socket_rx.recv(&mut in_buf) {
 						Ok(received) => {
